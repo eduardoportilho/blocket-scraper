@@ -4,14 +4,18 @@ var cheerio = require('cheerio');
 
 var baseUrl = 'https://www.blocket.se/hela_sverige'
 var firstPageQuery = '?q=&cg=1020&w=1&st=s&ps=&pe=6&mys=2005&mye=2016&ms=&me=&cxpf=&cxpt=&fu=&gb=&ca=11&is=1&l=0&md=th&cp=';
-var breakOnFirstPage = true;
+
+//para testes
+var breakOnFirstListPage = false;
+var breakOnFirstAd = false
 
 var links = [];
 var linkProcessorQueue = [];
-var anuncios = [];
+var anunciosLidos = [];
 
 //le tudo
-//breakOnFirstPage = false;
+// breakOnFirstListPage = true;
+// breakOnFirstAd = true;
 readListPage(firstPageQuery, processListPage);
 
 
@@ -30,7 +34,7 @@ var _pageNum = 1;
 function processListPage(page) {
 	console.log("Page " + (_pageNum++) + ' scraped, got '+ page.links.length +' links, next page:' + page.nextPageQuery);
 	links = links.concat(page.links);
-	if(!breakOnFirstPage && page.nextPageQuery !== undefined) {
+	if(!breakOnFirstListPage && page.nextPageQuery !== undefined) {
 		readListPage(page.nextPageQuery, processListPage)
 	} else {
 		processFetchedLinks(links);
@@ -39,43 +43,31 @@ function processListPage(page) {
 
 function processFetchedLinks(fetchedLinks) {
 	linkProcessorQueue = fetchedLinks.slice(0);
+	if(breakOnFirstAd) {
+		linkProcessorQueue = fetchedLinks.slice(0, 1);
+	}
 	fs.writeFileSync('links.csv', linkProcessorQueue.join('\n'));
 
 	spawnLinkProcessorWorker(finishProcessingFetchedLinks);
-	spawnLinkProcessorWorker(finishProcessingFetchedLinks);
-	spawnLinkProcessorWorker(finishProcessingFetchedLinks);
-	spawnLinkProcessorWorker(finishProcessingFetchedLinks);
-	spawnLinkProcessorWorker(finishProcessingFetchedLinks);
 }
 
-function processAnuncios(anuncios) {
-	var file = fs.createWriteStream('result.csv');
-	file.write(anuncios[0].keys().join(';') + '\n');
-
-	anuncios.forEach(function(anuncio) { 
-		file.write(Object.values(anuncio).join(';') + '\n'); 
-	});
-	file.end();
-}
 
 function finishProcessingFetchedLinks() {
-	if(_wip === 0) {
-		processAnuncios(anuncios);
-	}
+	processAnuncios(anunciosLidos);
 }
 
-var _wip = 0;
 function spawnLinkProcessorWorker(allWorkDone) {
 	console.log('worker: ' + linkProcessorQueue.length + ' remaining');
 	if(linkProcessorQueue.length <= 0) {
 		console.log("No more work to do! :)");
-		_wip--;
 		allWorkDone();
 		return;
 	}
-	_wip++;
 	var url = linkProcessorQueue.shift();
-	readAdPage(url, spawnLinkProcessorWorker);
+	readAdPage(url, function(anuncio) {
+		anunciosLidos.push(anuncio);
+		spawnLinkProcessorWorker(allWorkDone);
+	});
 }
 
 function readListPage(query, done) {
@@ -123,7 +115,6 @@ function readAdPage(adUrl, whenDone) {
 		}
 		var $ = cheerio.load(html),
 			anuncio = parseAnuncio(adUrl, $);
-		anuncios.push(anuncio);
 		whenDone(anuncio);
 	});
 }
@@ -208,11 +199,15 @@ function isurl(str) {
 }
 
 function processAnuncios(anuncios) {
-	var file = fs.createWriteStream('result.csv');
-	file.write(anuncios[0].keys().join(';') + '\n');
+	var file = fs.createWriteStream('result.txt'),
+		keys = Object.keys(anuncios[0]);
+	file.write(keys.join(';') + '\n');
 
-	anuncios.forEach(function(anuncio) { 
-		file.write(Object.values(anuncio).join(';') + '\n'); 
+	anuncios.forEach(function(anuncio) {
+		var vals = keys.map(function(k){
+			return anuncio[k];
+		});
+		file.write(vals.join(';') + '\n'); 
 	});
 	file.end();
 }
